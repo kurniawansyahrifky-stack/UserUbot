@@ -1,33 +1,48 @@
 import asyncio
+import os
+import shutil
+import subprocess
 
 from pyrogram import Client, errors, filters, types, StopPropagation
 from telethon import errors as telerror, TelegramClient
 from telethon.sessions import StringSession
 from telethon.tl.functions.channels import JoinChannelRequest
 from deploy_ultroid import deploy_ultroid
-from config import SUPPORT_CHAT
+from config import SUPPORT_CHAT, API_ID, API_HASH, MONGO_DB_URI
 from anony import app, buttons
 
 
 async def listen(cq: types.CallbackQuery, text: str, timeout: int = 120) -> str:
     try:
         await cq.message.reply_text(text)
-        message = await app.listen.Message(filters.text, id=filters.user(cq.from_user.id), timeout=timeout)
+        message = await app.listen.Message(
+            filters.text,
+            id=filters.user(cq.from_user.id),
+            timeout=timeout
+        )
         return message.text
     except asyncio.TimeoutError:
-        await cq.message.reply_text("Timed out.\n\nPlease try again.", reply_markup=buttons.retry_key())
+        await cq.message.reply_text(
+            "Timed out.\n\nPlease try again.",
+            reply_markup=buttons.retry_key()
+        )
         raise StopPropagation
 
 
 @app.on_callback_query(filters.regex("generate"))
 async def _generate(_, cq: types.CallbackQuery):
     await cq.answer()
-    await cq.message.reply_text("Please choose which session you want to generate:", reply_markup=buttons.gen_key())
+    await cq.message.reply_text(
+        "Please choose which session you want to generate:",
+        reply_markup=buttons.gen_key()
+    )
+
 
 @app.on_callback_query(filters.regex(r"(pyrogram|telethon)"))
 async def _gen_session(_, cq: types.CallbackQuery):
     sgen = cq.data
     pyrogram = sgen == "pyrogram"
+
     await cq.answer()
     await cq.message.reply_text(f"Starting {sgen} session generator...")
 
@@ -35,19 +50,36 @@ async def _gen_session(_, cq: types.CallbackQuery):
     try:
         api_id = int(api_id)
     except ValueError:
-        return await cq.message.reply_text("The <b>api id</b> you've sent is invalid.\n\nPlease start generating session again.", reply_markup=buttons.retry_key())
+        return await cq.message.reply_text(
+            "The <b>api id</b> you've sent is invalid.\n\nPlease start generating session again.",
+            reply_markup=buttons.retry_key()
+        )
 
     api_hash = await listen(cq, "Please enter your <b>api hash</b> to proceed:")
     if len(api_hash) < 30:
-        return await cq.message.reply_text("The <b>api hash</b> you've sent is invalid.\n\nPlease start generating session again.", reply_markup=buttons.retry_key())
+        return await cq.message.reply_text(
+            "The <b>api hash</b> you've sent is invalid.\n\nPlease start generating session again.",
+            reply_markup=buttons.retry_key()
+        )
 
-    phone_number = await listen(cq, "Please enter your <b>phone number</b> to proceed:")
+    phone_number = await listen(
+        cq,
+        "Please enter your <b>phone number</b> to proceed:"
+    )
+
     await cq.message.reply_text("Trying to send otp at the given number...")
+
     client = (
-        Client(name="Anony", api_id=api_id, api_hash=api_hash, in_memory=True)
+        Client(
+            name="Anony",
+            api_id=api_id,
+            api_hash=api_hash,
+            in_memory=True
+        )
         if pyrogram
         else TelegramClient(StringSession(), api_id, api_hash)
     )
+
     await client.connect()
 
     try:
@@ -59,28 +91,59 @@ async def _gen_session(_, cq: types.CallbackQuery):
         await asyncio.sleep(1)
 
     except errors.FloodWait as f:
-        return await cq.message.reply_text(f"Failed to send code for session generation.\n\nPlease wait for {f.value} seconds and try again.", reply_markup=buttons.retry_key())
+        return await cq.message.reply_text(
+            f"Failed to send code for session generation.\n\nPlease wait for {f.value} seconds and try again.",
+            reply_markup=buttons.retry_key()
+        )
+
     except (errors.ApiIdInvalid, telerror.ApiIdInvalidError):
-        return await cq.message.reply_text("Api id or api hash is invalid.\n\nPlease start generating session again.", reply_markup=buttons.retry_key())
+        return await cq.message.reply_text(
+            "Api id or api hash is invalid.\n\nPlease start generating session again.",
+            reply_markup=buttons.retry_key()
+        )
+
     except (errors.PhoneNumberInvalid, telerror.PhoneNumberInvalidError):
-        return await cq.message.reply_text("Phone number invalid.\n\nPlease start generating session again.", reply_markup=buttons.retry_key())
+        return await cq.message.reply_text(
+            "Phone number invalid.\n\nPlease start generating session again.",
+            reply_markup=buttons.retry_key()
+        )
+
     except Exception as ex:
         return await cq.message.reply_text(f"Error : <code>{str(ex)}</code>")
 
-    otp = await listen(cq, f"Please enter the otp sent to {phone_number}.\n\nIf otp is <code>12345</code>, please send it as <code>1 2 3 4 5</code>", timeout=600)
+    otp = await listen(
+        cq,
+        f"Please enter the otp sent to {phone_number}.\n\n"
+        f"If otp is <code>12345</code>, please send it as <code>1 2 3 4 5</code>",
+        timeout=600
+    )
+
     otp = otp.replace(" ", "")
+
     try:
         (
             await client.sign_in(phone_number, code.phone_code_hash, otp)
             if pyrogram
             else await client.sign_in(phone_number, otp)
         )
+
     except (errors.PhoneCodeInvalid, telerror.PhoneCodeInvalidError):
-        return await cq.message.reply_text("The otp you've sent is <b>wrong.</b>\n\nPlease start generating session again.", reply_markup=buttons.retry_key())
+        return await cq.message.reply_text(
+            "The otp you've sent is <b>wrong.</b>\n\nPlease start generating session again.",
+            reply_markup=buttons.retry_key()
+        )
+
     except (errors.PhoneCodeExpired, telerror.PhoneCodeExpiredError):
-        return await cq.message.reply_text("The otp you've sent is <b>expired</b>.\n\nPlease start generating session again.", reply_markup=buttons.retry_key())
+        return await cq.message.reply_text(
+            "The otp you've sent is <b>expired</b>.\n\nPlease start generating session again.",
+            reply_markup=buttons.retry_key()
+        )
+
     except (errors.SessionPasswordNeeded, telerror.SessionPasswordNeededError):
-        pwd = await listen(cq, "Please enter your two step verification password to continue:")
+        pwd = await listen(
+            cq,
+            "Please enter your two step verification password to continue:"
+        )
 
         try:
             (
@@ -89,19 +152,31 @@ async def _gen_session(_, cq: types.CallbackQuery):
                 else await client.sign_in(password=pwd)
             )
         except (errors.PasswordHashInvalid, telerror.PasswordHashInvalidError):
-            return await cq.message.reply_text("The password you've sent is wrong.\n\nPlease start generating session again.", reply_markup=buttons.retry_key())
+            return await cq.message.reply_text(
+                "The password you've sent is wrong.\n\nPlease start generating session again.",
+                reply_markup=buttons.retry_key()
+            )
 
     except Exception as ex:
-         return await cq.message.reply_text(f"Error : <code>{str(ex)}</code>")
+        return await cq.message.reply_text(f"Error : <code>{str(ex)}</code>")
 
     try:
-        txt = "Here is your {0} session\n\n<code>{1}</code>\n\nA session generator bot by <a href={2}>Fallen Association</a>\n☠ <b>Note :</b> Don't share the session with anyone."
+        txt = (
+            "Here is your {0} session\n\n"
+            "<code>{1}</code>\n\n"
+            "A session generator bot by "
+            "<a href={2}>Fallen Association</a>\n"
+            "☠ <b>Note :</b> Don't share the session with anyone."
+        )
+
         if pyrogram:
             string_session = await client.export_session_string()
             await client.send_message(
                 "me",
                 txt.format(sgen, string_session, SUPPORT_CHAT),
-                link_preview_options=types.LinkPreviewOptions(is_disabled=True),
+                link_preview_options=types.LinkPreviewOptions(
+                    is_disabled=True
+                ),
             )
             try:
                 await client.join_chat("FallenAssociation")
@@ -119,10 +194,70 @@ async def _gen_session(_, cq: types.CallbackQuery):
                 await client(JoinChannelRequest("@FallenAssociation"))
             except:
                 pass
+
+        # ==================================================
+        # AUTO DEPLOY ULTROID
+        # ==================================================
+        user_id = cq.from_user.id
+        template_path = "/root/userbot-panel/templates/ultroid"
+        instance_path = f"/root/userbot-panel/instances/{user_id}"
+
+        if not os.path.exists(instance_path):
+            shutil.copytree(template_path, instance_path)
+
+        env_path = os.path.join(instance_path, ".env")
+        with open(env_path, "w") as f:
+            f.write(f"API_ID={API_ID}\n")
+            f.write(f"API_HASH={API_HASH}\n")
+            f.write(f"SESSION={string_session}\n")
+            f.write(f"OWNER_ID={user_id}\n")
+            f.write(f"MONGO_URI={MONGO_DB_URI}\n")
+            f.write("BOT_TOKEN=\n")
+            f.write("HNDLR=.\n")
+            f.write("DUAL_HNDLR=/\n")
+
+        # Setup virtualenv + install requirements
+        subprocess.run(
+            [
+                "bash",
+                "-c",
+                f"""
+                cd {instance_path}
+                python3 -m venv venv
+                source venv/bin/activate
+                pip install -U pip
+                pip install -r requirements.txt
+                """
+            ],
+            executable="/bin/bash"
+        )
+
+        # Run Ultroid in background
+        subprocess.Popen(
+            [
+                "bash",
+                "-c",
+                f"""
+                cd {instance_path}
+                source venv/bin/activate
+                nohup python3 -m pyUltroid > ultroid.log 2>&1 &
+                """
+            ],
+            executable="/bin/bash"
+        )
+
     except KeyError:
         pass
+
     try:
         await client.disconnect()
-        await cq.message.reply_text(f"Successfully generated your {sgen} string session.\n\nPlease check your saved messages for getting it.\n\nA string generator bot by <a href={SUPPORT_CHAT}>Fallen Association</a>.", reply_markup=buttons.pm_key(cq.from_user.id))
+        await cq.message.reply_text(
+            f"Successfully generated your {sgen} string session.\n\n"
+            f"✅ Your Ultroid userbot is being deployed automatically.\n\n"
+            f"Please check your saved messages for getting your session.\n\n"
+            f"A string generator bot by "
+            f"<a href={SUPPORT_CHAT}>Fallen Association</a>.",
+            reply_markup=buttons.pm_key(cq.from_user.id)
+        )
     except:
         pass
